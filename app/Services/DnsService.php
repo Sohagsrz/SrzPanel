@@ -3,6 +3,9 @@
 namespace App\Services;
 
 use App\Models\Domain;
+use App\Models\DnsRecord;
+use App\Models\DnsZone;
+use App\Models\Server;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\File;
@@ -16,8 +19,10 @@ class DnsService
     protected $windowsDnsPath;
     protected $bindPath;
     protected $backupPath;
+    protected $server;
+    protected $api;
 
-    public function __construct(CacheService $cacheService)
+    public function __construct(CacheService $cacheService, Server $server)
     {
         $this->cacheService = $cacheService;
         $this->isWindows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
@@ -25,6 +30,8 @@ class DnsService
         $this->windowsDnsPath = 'C:\\Windows\\System32\\dns';
         $this->bindPath = $this->isWindows ? 'C:\\laragon\\bin\\bind' : '/etc/bind';
         $this->backupPath = storage_path('backups/dns');
+        $this->server = $server;
+        $this->api = new PleskAPI($server);
 
         if (!File::exists($this->backupPath)) {
             File::makeDirectory($this->backupPath, 0755, true);
@@ -72,15 +79,49 @@ class DnsService
         }
     }
 
-    public function addRecord(Domain $domain, array $record): void
+    public function addRecord(DnsZone $zone, array $data)
     {
         try {
-            $records = $this->getRecords($domain);
-            $records[] = $record;
-            $this->updateRecords($domain, $records);
+            $response = $this->api->request('POST', '/dns/records', [
+                'zone_id' => $zone->plesk_id,
+                'name' => $data['name'],
+                'type' => $data['type'],
+                'content' => $data['content'],
+                'ttl' => $data['ttl'] ?? 3600
+            ]);
+
+            if ($response['status'] === 'success') {
+                $record = DnsRecord::create([
+                    'zone_id' => $zone->id,
+                    'plesk_id' => $response['data']['id'],
+                    'name' => $data['name'],
+                    'type' => $data['type'],
+                    'content' => $data['content'],
+                    'ttl' => $data['ttl'] ?? 3600,
+                    'priority' => $data['priority'] ?? null
+                ]);
+
+                return [
+                    'status' => 'success',
+                    'message' => 'DNS record added successfully',
+                    'data' => $record
+                ];
+            }
+
+            return [
+                'status' => 'error',
+                'message' => $response['message'] ?? 'Failed to add DNS record'
+            ];
         } catch (\Exception $e) {
-            Log::error("Failed to add DNS record for domain {$domain->name}: " . $e->getMessage());
-            throw $e;
+            Log::error('DNS Record Addition Error', [
+                'zone' => $zone->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'status' => 'error',
+                'message' => 'Failed to add DNS record: ' . $e->getMessage()
+            ];
         }
     }
 
@@ -198,31 +239,6 @@ class DnsService
     protected function createWindowsZone($zoneName, $type)
     {
         $command = "Add-DnsServerPrimaryZone -Name \"{$zoneName}\" -ZoneFile \"{$zoneName}.dns\" -DynamicUpdate None";
-        Process::run("powershell -Command \"{$command}\"");
-        return true;
-    }
-
-    public function addRecord($zoneName, $name, $type, $value, $ttl = 3600)
-    {
-        if ($this->isWindows) {
-            return $this->addWindowsRecord($zoneName, $name, $type, $value, $ttl);
-        }
-        return $this->addBindRecord($zoneName, $name, $type, $value, $ttl);
-    }
-
-    protected function addBindRecord($zoneName, $name, $type, $value, $ttl)
-    {
-        $zoneFile = $this->bindConfigPath . '/zones/' . $zoneName . '.db';
-        $record = "{$name}\t{$ttl}\tIN\t{$type}\t{$value}\n";
-        File::append($zoneFile, $record);
-        
-        Process::run('rndc reload');
-        return true;
-    }
-
-    protected function addWindowsRecord($zoneName, $name, $type, $value, $ttl)
-    {
-        $command = "Add-DnsServerResourceRecord -ZoneName \"{$zoneName}\" -Name \"{$name}\" -RecordType {$type} -RecordData \"{$value}\" -TTL {$ttl}";
         Process::run("powershell -Command \"{$command}\"");
         return true;
     }

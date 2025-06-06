@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\DnsService;
 use App\Services\CacheService;
+use App\Models\DnsZone;
 use Illuminate\Http\Request;
 
 class DnsController extends Controller
@@ -49,24 +50,33 @@ class DnsController extends Controller
     public function addRecord(Request $request)
     {
         $request->validate([
-            'zone_name' => 'required|string|max:255',
+            'zone_id' => 'required|exists:dns_zones,id',
             'name' => 'required|string|max:255',
             'type' => 'required|in:A,AAAA,CNAME,MX,TXT,NS,PTR,SRV',
-            'value' => 'required|string|max:255',
-            'ttl' => 'required|integer|min:60|max:86400'
+            'content' => 'required|string|max:255',
+            'ttl' => 'required|integer|min:60|max:86400',
+            'priority' => 'nullable|integer|min:0|max:65535'
         ]);
 
-        $this->dnsService->addRecord(
-            $request->zone_name,
-            $request->name,
-            $request->type,
-            $request->value,
-            $request->ttl
-        );
-        $this->cacheService->forget('dns.zones');
+        $zone = DnsZone::findOrFail($request->zone_id);
+        
+        $result = $this->dnsService->addRecord($zone, [
+            'name' => $request->name,
+            'type' => $request->type,
+            'content' => $request->content,
+            'ttl' => $request->ttl,
+            'priority' => $request->priority
+        ]);
 
-        return redirect()->route('admin.dns.index')
-            ->with('success', 'DNS record added successfully.');
+        if ($result['status'] === 'success') {
+            $this->cacheService->forget('dns.zones');
+            return redirect()->route('admin.dns.index')
+                ->with('success', 'DNS record added successfully.');
+        }
+
+        return redirect()->back()
+            ->with('error', $result['message'])
+            ->withInput();
     }
 
     public function destroy(Request $request)

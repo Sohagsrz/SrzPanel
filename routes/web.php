@@ -25,16 +25,30 @@ use App\Http\Controllers\Admin\LogController;
 use App\Http\Controllers\Admin\FTPController;
 use App\Http\Controllers\Admin\DNSTemplateController;
 use App\Http\Controllers\Admin\EmailTemplateController;
+use App\Http\Controllers\Admin\ServerController;
+use App\Http\Controllers\Admin\SettingController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Auth\AuthenticatedSessionController;
 
 Route::get('/', function () {
     return view('welcome');
 });
 
+// Authentication Routes
+Route::middleware('guest')->group(function () {
+    Route::get('login', [AuthenticatedSessionController::class, 'create'])->name('login');
+    Route::post('login', [AuthenticatedSessionController::class, 'store']);
+});
+
+Route::middleware('auth')->group(function () {
+    Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+});
+
 Route::middleware(['auth', 'verified'])->group(function () {
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-
+    //logout
+    
     // Domains
     Route::resource('domains', DomainController::class);
     Route::post('domains/{domain}/dns', [DomainController::class, 'updateDNS'])->name('domains.dns.update');
@@ -121,55 +135,154 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/vhosts/{domain}', [VirtualHostController::class, 'destroy'])->name('vhosts.destroy');
 });
 
+// Admin routes
 Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('/installers', [InstallerController::class, 'index'])->name('installers.index');
-    Route::post('/installers/install', [InstallerController::class, 'install'])->name('installers.install');
-    Route::post('/installers/uninstall', [InstallerController::class, 'uninstall'])->name('installers.uninstall');
-    Route::get('/os-detection', [OSDetectionController::class, 'index'])->name('os-detection.index');
+    // Dashboard
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard/refresh', [DashboardController::class, 'refresh'])->name('dashboard.refresh');
+
+    // Profile
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    // Logout
+    Route::post('/logout', [AuthenticatedSessionController::class, 'destroy'])->name('logout');
+
+    // Servers
+    Route::resource('servers', ServerController::class);
+    Route::post('servers/{server}/restart', [ServerController::class, 'restart'])->name('servers.restart');
+    Route::post('servers/{server}/update', [ServerController::class, 'update'])->name('servers.update');
+    Route::get('servers/{server}/stats', [ServerController::class, 'stats'])->name('servers.stats');
+    Route::get('servers/{server}/status', [ServerController::class, 'status'])->name('servers.status');
+
+    // Domains
+    Route::resource('domains', DomainController::class);
+    Route::post('domains/{domain}/dns', [DomainController::class, 'updateDNS'])->name('domains.dns.update');
+    Route::post('domains/{domain}/ssl', [DomainController::class, 'updateSSL'])->name('domains.ssl.update');
+    Route::post('domains/{domain}/check-dns', [DomainController::class, 'checkDns'])->name('domains.check-dns');
+
+    // Databases
+    Route::resource('databases', DatabaseController::class);
+    Route::post('databases/{database}/backup', [DatabaseController::class, 'backup'])->name('databases.backup');
+    Route::post('databases/{database}/restore', [DatabaseController::class, 'restore'])->name('databases.restore');
+    Route::post('databases/{database}/optimize', [DatabaseController::class, 'optimize'])->name('databases.optimize');
+    Route::post('databases/{database}/repair', [DatabaseController::class, 'repair'])->name('databases.repair');
+
+    // Email
+    Route::resource('emails', EmailController::class);
+    Route::post('emails/{email}/forward', [EmailController::class, 'updateForward'])->name('emails.forward.update');
+    Route::post('emails/{email}/autoresponder', [EmailController::class, 'updateAutoresponder'])->name('emails.autoresponder.update');
+    Route::post('emails/{email}/password', [EmailController::class, 'changePassword'])->name('emails.password.change');
+    Route::post('emails/{email}/test', [EmailController::class, 'test'])->name('emails.test');
+
+    // File Manager
+    Route::get('/files', [FileManagerController::class, 'index'])->name('files.index');
+    Route::get('/files/{path}', [FileManagerController::class, 'show'])->where('path', '.*')->name('files.show');
+    Route::post('/files/upload', [FileManagerController::class, 'upload'])->name('files.upload');
+    Route::post('/files', [FileManagerController::class, 'create'])->name('files.store');
+    Route::put('/files/{path}', [FileManagerController::class, 'update'])->where('path', '.*')->name('files.update');
+    Route::delete('/files/{path}', [FileManagerController::class, 'destroy'])->where('path', '.*')->name('files.destroy');
+    Route::post('/files/extract', [FileManagerController::class, 'extract'])->name('files.extract');
+    Route::post('/files/compress', [FileManagerController::class, 'compress'])->name('files.compress');
+    Route::post('/files/permissions', [FileManagerController::class, 'permissions'])->name('files.permissions');
+    Route::get('filemanager', [FileManagerController::class, 'index'])->name('filemanager.index');
+    Route::get('filemanager/edit', [FileManagerController::class, 'editFile'])->name('filemanager.edit');
+    Route::post('filemanager/save', [FileManagerController::class, 'saveFile'])->name('filemanager.save');
+    Route::post('filemanager/upload', [FileManagerController::class, 'uploadFile'])->name('filemanager.upload');
+    Route::post('filemanager/create-directory', [FileManagerController::class, 'createDirectory'])->name('filemanager.create-directory');
+    Route::post('filemanager/delete-directory', [FileManagerController::class, 'deleteDirectory'])->name('filemanager.delete-directory');
+    Route::post('filemanager/delete-file', [FileManagerController::class, 'deleteFile'])->name('filemanager.delete-file');
+    Route::post('filemanager/move', [FileManagerController::class, 'moveFile'])->name('filemanager.move');
+    Route::post('filemanager/copy', [FileManagerController::class, 'copyFile'])->name('filemanager.copy');
+    Route::post('filemanager/permissions', [FileManagerController::class, 'changePermissions'])->name('filemanager.permissions');
+
+    // Backups
+    Route::resource('backups', BackupController::class);
+    Route::post('backups/{backup}/restore', [BackupController::class, 'restore'])->name('backups.restore');
+
+    // SSL
+    Route::resource('ssl', SSLController::class);
+    Route::post('ssl/{ssl}/renew', [SSLController::class, 'renew'])->name('ssl.renew');
+    Route::post('/ssl/lets-encrypt', [SSLController::class, 'requestLetsEncrypt'])->name('ssl.request-lets-encrypt');
+    Route::post('/ssl/renew-all', [SSLController::class, 'renewAll'])->name('ssl.renew-all');
+
+    // Cron
+    Route::resource('cron', CronController::class);
+    Route::get('cron/{cron}/logs', [CronController::class, 'logs'])->name('cron.logs');
+
+    // PHP
+    Route::resource('php', PHPController::class);
+    Route::post('php/{php}/ini', [PHPController::class, 'updateIni'])->name('php.ini.update');
+
+    // Packages
+    Route::get('packages', [PackagesController::class, 'index'])->name('packages.index');
+    Route::post('packages/install', [PackagesController::class, 'install'])->name('packages.install');
+    Route::post('packages/remove', [PackagesController::class, 'remove'])->name('packages.remove');
+
+    // Terminal
+    Route::get('terminal', [TerminalController::class, 'index'])->name('terminal.index');
+    Route::post('terminal/execute', [TerminalController::class, 'execute'])->name('terminal.execute');
+
+    // Settings
+    Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');
+    Route::put('settings', [SettingsController::class, 'update'])->name('settings.update');
+
+    // Profile
+    Route::get('profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::put('profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::put('profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password');
+
+    // DNS Manager
+    Route::get('/dns', [DnsController::class, 'index'])->name('dns.index');
+    Route::post('/dns', [DnsController::class, 'store'])->name('dns.store');
+    Route::post('/dns/record', [DnsController::class, 'addRecord'])->name('dns.add-record');
+    Route::delete('/dns', [DnsController::class, 'destroy'])->name('dns.destroy');
+
+    // DNS Templates
+    Route::resource('dns-templates', DNSTemplateController::class);
+    Route::post('dns-templates/{template}/apply', [DNSTemplateController::class, 'apply'])->name('dns-templates.apply');
+
+    // Announcements
+    Route::resource('announcements', AnnouncementController::class);
+    Route::post('announcements/{announcement}/toggle', [AnnouncementController::class, 'toggle'])
+        ->name('announcements.toggle');
+
+    // Virtual Hosts
     Route::get('/vhosts', [VirtualHostController::class, 'index'])->name('vhosts.index');
     Route::get('/vhosts/create', [VirtualHostController::class, 'create'])->name('vhosts.create');
     Route::post('/vhosts', [VirtualHostController::class, 'store'])->name('vhosts.store');
     Route::delete('/vhosts/{domain}', [VirtualHostController::class, 'destroy'])->name('vhosts.destroy');
-    Route::get('/monitor', [ResourceMonitorController::class, 'index'])->name('admin.monitor.index');
-    Route::get('/monitor/stats', [ResourceMonitorController::class, 'getStats'])->name('admin.monitor.stats');
-    Route::get('/monitor/processes', [ResourceMonitorController::class, 'getProcesses'])->name('admin.monitor.processes');
-    Route::post('/users/{id}/suspend', [UserController::class, 'suspend'])->name('admin.users.suspend');
-    Route::post('/users/{id}/unsuspend', [UserController::class, 'unsuspend'])->name('admin.users.unsuspend');
-    Route::get('/firewall', [FirewallController::class, 'index'])->name('admin.firewall.index');
-    Route::post('/firewall', [FirewallController::class, 'store'])->name('admin.firewall.store');
-    Route::delete('/firewall/{id}', [FirewallController::class, 'destroy'])->name('admin.firewall.destroy');
-    Route::get('/logs', [LogController::class, 'index'])->name('admin.logs.index');
-    Route::get('/logs/{path}', [LogController::class, 'show'])->name('admin.logs.show');
-    Route::post('/logs/{path}/clear', [LogController::class, 'clear'])->name('admin.logs.clear');
-    Route::get('/logs/{path}/download', [LogController::class, 'download'])->name('admin.logs.download');
-    Route::get('/logs/{path}/search', [LogController::class, 'search'])->name('admin.logs.search');
-    Route::get('/ftp', [FTPController::class, 'index'])->name('admin.ftp.index');
-    Route::post('/ftp', [FTPController::class, 'store'])->name('admin.ftp.store');
-    Route::delete('/ftp/{username}', [FTPController::class, 'destroy'])->name('admin.ftp.destroy');
-    Route::post('/ftp/{username}/password', [FTPController::class, 'changePassword'])->name('admin.ftp.password');
-    Route::post('/ftp/toggle', [FTPController::class, 'toggleService'])->name('admin.ftp.toggle');
-    Route::post('/ftp/restart', [FTPController::class, 'restartService'])->name('admin.ftp.restart');
-    Route::resource('dns-templates', DNSTemplateController::class);
-    Route::post('dns-templates/{template}/apply/{domain}', [DNSTemplateController::class, 'apply'])
-        ->name('admin.dns-templates.apply');
-    Route::resource('email-templates', EmailTemplateController::class);
-    Route::get('email-templates/{template}/preview', [EmailTemplateController::class, 'preview'])
-        ->name('admin.email-templates.preview');
-});
 
-// File Manager Routes
-Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
-    Route::get('filemanager', [FileManagerController::class, 'index'])->name('admin.filemanager.index');
-    Route::get('filemanager/edit', [FileManagerController::class, 'editFile'])->name('admin.filemanager.edit');
-    Route::post('filemanager/save', [FileManagerController::class, 'saveFile'])->name('admin.filemanager.save');
-    Route::post('filemanager/upload', [FileManagerController::class, 'uploadFile'])->name('admin.filemanager.upload');
-    Route::post('filemanager/create-directory', [FileManagerController::class, 'createDirectory'])->name('admin.filemanager.create-directory');
-    Route::post('filemanager/delete-directory', [FileManagerController::class, 'deleteDirectory'])->name('admin.filemanager.delete-directory');
-    Route::post('filemanager/delete-file', [FileManagerController::class, 'deleteFile'])->name('admin.filemanager.delete-file');
-    Route::post('filemanager/move', [FileManagerController::class, 'moveFile'])->name('admin.filemanager.move');
-    Route::post('filemanager/copy', [FileManagerController::class, 'copyFile'])->name('admin.filemanager.copy');
-    Route::post('filemanager/permissions', [FileManagerController::class, 'changePermissions'])->name('admin.filemanager.permissions');
-    Route::get('filemanager/show/{path}', [FileManagerController::class, 'show'])->name('admin.filemanager.show');
+    // Resource Monitor
+    Route::get('/monitor', [ResourceMonitorController::class, 'index'])->name('monitor.index');
+    Route::get('/monitor/cpu', [ResourceMonitorController::class, 'cpu'])->name('monitor.cpu');
+    Route::get('/monitor/memory', [ResourceMonitorController::class, 'memory'])->name('monitor.memory');
+    Route::get('/monitor/disk', [ResourceMonitorController::class, 'disk'])->name('monitor.disk');
+    Route::get('/monitor/network', [ResourceMonitorController::class, 'network'])->name('monitor.network');
+
+    // Users
+    Route::resource('users', UserController::class);
+    Route::post('users/{user}/suspend', [UserController::class, 'suspend'])->name('users.suspend');
+    Route::post('users/{user}/unsuspend', [UserController::class, 'unsuspend'])->name('users.unsuspend');
+
+    // Firewall
+    Route::get('/firewall', [FirewallController::class, 'index'])->name('firewall.index');
+    Route::post('/firewall/block', [FirewallController::class, 'block'])->name('firewall.block');
+    Route::post('/firewall/unblock', [FirewallController::class, 'unblock'])->name('firewall.unblock');
+
+    // Logs
+    Route::get('/logs', [LogController::class, 'index'])->name('logs.index');
+    Route::get('/logs/{type}', [LogController::class, 'show'])->name('logs.show');
+    Route::delete('/logs/{type}', [LogController::class, 'clear'])->name('logs.clear');
+
+    // FTP
+    Route::resource('ftp', FTPController::class);
+    Route::post('ftp/{ftp}/suspend', [FTPController::class, 'suspend'])->name('ftp.suspend');
+    Route::post('ftp/{ftp}/unsuspend', [FTPController::class, 'unsuspend'])->name('ftp.unsuspend');
+
+    // Email Templates
+    Route::resource('email-templates', EmailTemplateController::class);
 });
 
 // User Webhook Routes
